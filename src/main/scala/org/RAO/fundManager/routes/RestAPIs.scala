@@ -7,6 +7,7 @@ import akka.http.scaladsl.server.Directives._
 import akka.stream.scaladsl.Source
 import akka.util.ByteString
 import org.RAO.fundManager.dal.FundMQueryManager
+import org.RAO.fundManager.exceptions.MissingParams
 import org.RAO.fundManager.utils.{Json, Utils}
 import org.slf4j.LoggerFactory
 
@@ -40,23 +41,27 @@ trait RestAPIs extends APIRoutes
           onSuccess(inputMapF)
           {
             inputMap =>
-            {
-              try
+              val missingParam = Utils.required(inputMap, List("amount"))
+              if(missingParam.isEmpty)
               {
-                val id = Utils.constructRandomKey(30)
-                val name = inputMap("name").toString
-                val amount = inputMap("amount").toString.toDouble
-                val date = inputMap.getOrElse("date", dateFormat.format(new Date())).toString
-                val description = inputMap.getOrElse("description", "").toString
-                FundMQueryManager.insertFund(id, name, amount, date, description)
-                complete(HttpEntity(ContentTypes.`application/json`, Json.Value(Map("id" -> id, "amount" -> amount, "name" -> name, "date" -> date)).write))
+                try
+                {
+                  val id = Utils.constructRandomKey(30)
+                  val name = inputMap("name").toString
+                  val amount = inputMap("amount").toString.toDouble
+                  val date = inputMap.getOrElse("date", dateFormat.format(new Date())).toString
+                  val description = inputMap.getOrElse("description", "").toString
+                  FundMQueryManager.insertFund(id, name, amount, date, description)
+                  complete(HttpEntity(ContentTypes.`application/json`, Json.Value(Map("id" -> id, "amount" -> amount, "name" -> name, "date" -> date)).write))
+                }
+                catch
+                {
+  //              TODO: Add proper exception(unique key exception) type
+                  case ex:Exception=> complete((StatusCodes.BadRequest,"Duplicate name try with new name"))
+                }
               }
-              catch
-              {
-//              TODO: Add proper exception(unique key exception) type
-                case ex:Exception=> complete((StatusCodes.BadRequest,"Duplicate name try with new name"))
-              }
-            }
+              else
+               throw new MissingParams(missingParam)
           }
         }
       } ~
@@ -94,21 +99,26 @@ trait RestAPIs extends APIRoutes
           {
             inputMap=>
             {
-              val id = Utils.constructRandomKey(20)
-              val amount = inputMap("amount").toString.toDouble
-              val who = inputMap.getOrElse("who","").toString
-              val category = inputMap("category").toString
-              val fundId = inputMap("fundId").toString
-              val description = inputMap.getOrElse("description", "").toString
-              val date = dateFormat.format(new Date())
-              val time = timeFormat.format(new Date())
-//              TODO: validate fund id
-              var balance = FundMQueryManager.getFundBalance(fundId).getOrElse(0.0)
-              if(category == "CRD") balance = balance + amount
-              if(category == "DEB") balance = balance - amount
-              FundMQueryManager.insertTransaction(id, amount, who, category, fundId, description, balance, date, time)
-              FundMQueryManager.updateFundBalance(fundId, balance)
-              complete(HttpEntity(ContentTypes.`application/json`,Json.Value(Map("id"->id, "balance"->balance, "who"->who, "date"->date, "time"->time)).write))
+              val missingParam = Utils.required(inputMap, List("amount"))
+              if(missingParam.isEmpty) {
+                val id = Utils.constructRandomKey(20)
+                val amount = inputMap("amount").toString.toDouble
+                val who = inputMap.getOrElse("who", "").toString
+                val category = inputMap("category").toString
+                val fundId = inputMap("fundId").toString
+                val description = inputMap.getOrElse("description", "").toString
+                val date = dateFormat.format(new Date())
+                val time = timeFormat.format(new Date())
+                //              TODO: validate fund id
+                var balance = FundMQueryManager.getFundBalance(fundId).getOrElse(0.0)
+                if (category == "CRD") balance = balance + amount
+                if (category == "DEB") balance = balance - amount
+                FundMQueryManager.insertTransaction(id, amount, who, category, fundId, description, balance, date, time)
+                FundMQueryManager.updateFundBalance(fundId, balance)
+                complete(HttpEntity(ContentTypes.`application/json`, Json.Value(Map("id" -> id, "balance" -> balance, "who" -> who, "date" -> date, "time" -> time)).write))
+              }
+              else
+                throw new MissingParams(missingParam)
             }
           }
         }
